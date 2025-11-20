@@ -1,4 +1,5 @@
 import logging
+import gc
 from pathlib import Path
 from typing import List, Dict, Any
 from mcp.server import Server
@@ -113,42 +114,74 @@ class MCPRAGServer:
         self.logger.info(f"Initialized {len(self.collections)} RAG collections")
     
     def _process_subdirectory(self, subdir: Path):
-        subdir_name = subdir.name
-        tool_name = f"{subdir_name}_search"
-        collection_name = f"{self.config.qdrant_collection_prefix}_{sanitize_collection_name(subdir_name)}"
-        
-        self.logger.info(f"Processing subdirectory: {subdir_name}")
-        
-        documents = self.loader.load_directory(subdir)
-        
-        if not documents:
-            self.logger.warning(f"No documents found in {subdir_name}")
-            return
-        
-        chunked_docs = []
-        for doc in documents:
-            chunks = chunk_text(
-                doc["content"],
-                self.config.chunk_size,
-                self.config.chunk_overlap
-            )
-            for chunk in chunks:
-                chunked_docs.append({
-                    "content": chunk,
-                    "metadata": doc["metadata"]
-                })
-        
-        self.logger.info(f"Created {len(chunked_docs)} chunks from {len(documents)} documents")
-        
-        self.vectorstore.create_collection(collection_name, self.config.force_reindex)
-        self.vectorstore.index_documents(
-            collection_name,
-            chunked_docs,
-            self.config.batch_size
-        )
-        
-        self.collections[tool_name] = collection_name
-        self.logger.info(f"Created tool: {tool_name} -> collection: {collection_name}")
+    subdir_name = subdir.name
+    tool_name = f"{subdir_name}_search"
+    collection_name = f"{self.config.qdrant_collection_prefix}_{sanitize_collection_name(subdir_name)}"
+
+    self.logger.info(f"Processing subdirectory: {subdir_name}")
+
+    # load_directory may return a list but we stream chunks so we won't accumulate them
+    documents = self.loader.load_directory(subdir)
+
+    if not documents:
+        self.logger.warning(f"No documents found in {subdir_name}")
+        return
+
+    # create collection first (respects force_reindex inside VectorStore impl)
+    self.vectorstore.create_collection(collection_name, self.config.force_reindex)
+
+    batch: List[Dict[str, Any]] = []
+    total_chunks = 0
+    total_docs = 0
+
+    # If loader returns a generator/iterator this will be streaming already.
+    # If loader returns a list, this still avoids accumulating chunked_docs.
+    for doc in documents:
+        total_docs += 1
+        content = doc.get("content", "")
+        metadata = doc.get("metadata", {})
+
+        # chunk_text should return an iterable (list) of chunks for this doc
+        chunks = chunk_text(content, self.config.chunk_size, self.config.chunk_overlap)
+
+        for chunk in chunks:
+            total_chunks += 1
+            batch.append({
+                "content": chunk,
+                "metadata": metadata
+            })
+
+            # once we hit batch_size, index and clear
+            if len(batch) >= max(1, int(self.config.batch_size)):
+                try:
+                    self.logger.debug(f"Indexing batch of {len(batch)} chunks (total_chunks={total_chunks})")
+                    # Keep same signature as original call: (collection_name, docs, batch_size)
+                    self.vectorstore.index_documents(collection_name, batch, self.config.batch_size)
+                except Exception as e:
+                    self.logger.exception(f"Error indexing batch: {e}")
+                    # Depending on needs you might want to continue or raise
+                    raise
+                finally:
+                    # free memory used by batch
+                    del batch[:]
+                    gc.collect()
+
+    # index any remaining chunks
+    if batch:
+        try:
+            self.logger.debug(f"Indexing final batch of {len(batch)} chunks (total_chunks={total_chunks})")
+            self.vectorstore.index_documents(collection_name, batch, self.config.batch_size)
+        except Exception as e:
+            self.logger.exception(f"Error indexing final batch: {e}")
+            raise
+        finally:
+            del batch
+            gc.collect()
+
+    self.collections[tool_name] = collection_name
+    self.logger.info(f"Created tool: {tool_name} -> collection: {collection_name}")
+    self.logger.info(f"Processed {total_docs} documents into {total_chunks} chunks for collection {collection_name}")
+    
     
     def run(self):
         import asyncio
