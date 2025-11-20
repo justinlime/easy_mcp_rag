@@ -1,7 +1,7 @@
 import logging
+from pypdf import PdfReader
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Iterator
-import PyPDF2
 import docx
 import pandas as pd
 
@@ -70,7 +70,7 @@ class DocumentLoader:
         """Extract text from PDF."""
         text_parts = []
         with open(file_path, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
+            reader = PdfReader(f)
             for page in reader.pages:
                 text = page.extract_text()
                 if text:
