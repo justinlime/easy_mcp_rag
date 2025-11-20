@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "easy_mcp_rag"
+version = "0.1.0"
+description = "MCP RAG Server with Qdrant vector database support"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name", email = "your.email@example.com" }
+]
+keywords = ["mcp", "rag", "qdrant", "vector-search", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "mcp>=0.9.0",
+    "qdrant-client>=1.7.0",
+    "sentence-transformers>=2.2.0",
+    "pypdf>=3.17.0",
+    "python-docx>=1.1.0",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "numpy>=1.24.0",
+    "httpx>=0.25.0",
+    "starlette>=0.27.0",
+    "uvicorn>=0.24.0",
+]
+
+[project.optional-dependencies]
+gpu = [
+    "torch>=2.0.0",
+]
+cpu = [
+    "torch>=2.0.0; platform_machine != 'arm64'",
+]
+
+[project.scripts]
+easy_mcp_rag = "easy_mcp_rag.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/easy_mcp_rag"
+Repository = "https://github.com/yourusername/easy_mcp_rag"
+Issues = "https://github.com/yourusername/easy_mcp_rag/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/easy_mcp_rag"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
